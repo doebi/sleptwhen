@@ -31,6 +31,7 @@ day = timedelta(days = 1)
 half_hour = timedelta(minutes = 30)
 half_hours_in_day = round(day / half_hour)
 use_escape_sequences = sys.stdout.isatty()
+output_width = 61
 
 # function for parsing single lines of input
 def parse_line(line):
@@ -83,6 +84,26 @@ def get_delta_fields(delta):
     fields["hours"], remainder = divmod(round(delta.total_seconds()), 3600)
     fields["minutes"], fields["seconds"] = divmod(remainder, 60)
     return fields
+
+def format_heading(heading):
+    padded_heading = " " + heading + " "
+    heading_pos = int((output_width - len(padded_heading)) / 2)
+    full_heading = style_text("┌" + ("─" * heading_pos), fgcolor = heading_line_color) + \
+                   style_text(padded_heading, fgcolor = heading_color)
+    full_heading += style_text(("─" * (output_width - heading_pos - len(padded_heading))) + "┐", \
+                    fgcolor = heading_line_color)
+    return full_heading
+
+def format_delta_short(delta):
+    fields = get_delta_fields(delta)
+    if fields["hours"] == 0 and fields["minutes"] == 0:
+        return ""
+    if fields["hours"] == 0:
+        return style_text("  :", fgcolor = time_text_color) + \
+               style_text("%02d" % fields["minutes"], fgcolor = time_color)
+    return style_text("%2d" % fields["hours"], fgcolor = time_color) + \
+           style_text(":", fgcolor = time_text_color) + \
+           style_text("%02d" % fields["minutes"], fgcolor = time_color)
 
 
 # reading the datafile
@@ -197,3 +218,72 @@ print("        " + grid_footer)
 
 print()
 
+
+### Print month views
+current_time = latest_time
+
+# 0 is not a valid month index, so the "month changed" condition
+# will always be fulfilled in the first iteration
+current_month = 0
+
+# Do not use full block character here to keep separation between lines
+levels = len(level_characters) - 2
+
+while current_time > earliest_time:
+    current_time -= day
+
+    month_changed = current_time.month != current_month
+
+    if month_changed:
+        current_month = current_time.month
+        print()
+        print()
+        print(format_heading(current_time.strftime("%B %Y")))
+        print()
+        print(time_header)
+        print("        " + grid_header)
+
+    weekend = current_time.weekday() in [5, 6]
+    sunday  = current_time.weekday() == 6
+
+    time_text = style_text(current_time.strftime("%a"), \
+                           fgcolor = weekend_color if weekend else weekday_color, \
+                           bold = sunday)
+    time_text += current_time.strftime(" %d").replace(" 0", "  ")
+
+    output_line = time_text + "  "
+
+    time_sum = timedelta()
+
+    bar_text = ""
+
+    slot_index = 0
+
+    ### Build chart for day
+    for time_slot in time_slots:
+        if time_slot["time"] >= current_time and time_slot["time"] < current_time + day:
+            time_sum += time_slot["time_in_slot"]
+            level = round((time_slot["time_in_slot"] / half_hour) * levels)
+            grid = slot_index % 12 == 0
+            slot_index += 1
+            bar_text += style_text(level_characters[level], \
+                        fgcolor = (bar_weekend_color_grid if grid else bar_weekend_color) if weekend \
+                        else (bar_color_grid if grid else bar_color),
+                        bgcolor = grid_color if grid else None)
+
+    output_line += bar_text
+
+    output_line += style_text(" ", bgcolor = grid_color)
+
+    output_line += " " + format_delta_short(time_sum)
+
+    print(output_line)
+
+    if (current_time.day == 1) or \
+       (current_time <= earliest_time):
+           # End of month
+           print("        " + grid_footer)
+
+
+# Reset text attributes
+print(get_reset_sequence(), end = "")
